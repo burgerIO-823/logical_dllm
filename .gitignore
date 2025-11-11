@@ -1,0 +1,12 @@
+ .conda/
+langs/*
+!langs/build.py
+!langs/clone.sh
+
+# OS / editor / Python 常见忽略
+.DS_Store
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.log
+
