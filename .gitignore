@@ -1,7 +1,7 @@
- .conda/
-langs/*
-!langs/build.py
-!langs/clone.sh
+.conda/
+code_extractor/langs/*
+!code_extractor/langs/build.py
+!code_extractor/langs/clone.sh
 
 # OS / editor / Python 常见忽略
 .DS_Store
@@ -9,4 +9,3 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 *.log
-
