@@ -10,11 +10,12 @@ CFG = {
 
     # 结构类
     "root_types":       ["program"],
-    "block_types":      ["block", "class_body"],
+    "block_types":      ["block", "class_body","constructor_body"],
     "paramlist_types":  ["formal_parameters"],
     "paramdecl_types":  ["formal_parameter"],
     "class_def_types":  ["class_declaration"],
 
     # 类型类
     "type_spec_types":  ["integral_type"],
+    "attr_access_types": ["field_access", "scoped_identifier"],
 }

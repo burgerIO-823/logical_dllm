@@ -9,29 +9,114 @@ from code_extractor.parsers.ast import AstExtractor
 
 SAMPLES = {
     "python": """\
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def shift(self, dx, dy):
+        nx = self.x + dx
+        ny = self.y + dy
+        return Point(nx, ny)
+
 def add(a, b):
-    if a > 0:
-        return a + b
-    else:
-        return b - a
+    c = a + b
+    if c > 0:
+        d = c + 1
+    return d
+
+p = Point(1, 2)
+q = p.shift(3, 4)
 """,
+
     "javascript": """\
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+
+  shift(dx, dy) {
+    const nx = this.x + dx;
+    const ny = this.y + dy;
+    return new Point(nx, ny);
+  }
+}
+
 function add(a, b) {
-  if (a > 0) { return a + b; }
-  else { return b - a; }
+  let c = a + b;
+  if (c > 0) {
+    let d = c + 1;
+    return d;
+  }
 }
+
+const p = new Point(1, 2);
+const q = p.shift(3, 4);
 """,
+
     "c": """\
+typedef struct Point {
+  int x;
+  int y;
+} Point;
+
+Point shift(Point p, int dx, int dy) {
+  Point res;
+  res.x = p.x + dx;
+  res.y = p.y + dy;
+  return res;
+}
+
 int add(int a, int b) {
-  if (a > 0) return a + b;
-  else return b - a;
+  int c = a + b;
+  if (c > 0) {
+    int d = c + 1;
+    return d;
+  }
+  return c;
+}
+
+int main() {
+  Point p;
+  p.x = 1;
+  p.y = 2;
+  Point q = shift(p, 3, 4);
+  int r = add(q.x, q.y);
+  return r;
 }
 """,
+
     "java": """\
+class Point {
+  int x, y;
+
+  Point(int x, int y) {
+    this.x = x;
+    this.y = y;
+  }
+
+  Point shift(int dx, int dy) {
+    int nx = this.x + dx;
+    int ny = this.y + dy;
+    return new Point(nx, ny);
+  }
+}
+
 class T {
   int add(int a, int b) {
-    if (a > 0) return a + b;
-    else return b - a;
+    int c = a + b;
+    if (c > 0) {
+      int d = c + 1;
+      return d;
+    }
+    return c;
+  }
+
+  void run() {
+    Point p = new Point(1, 2);
+    Point q = p.shift(3, 4);
+    int r = add(q.x, q.y);
   }
 }
 """,

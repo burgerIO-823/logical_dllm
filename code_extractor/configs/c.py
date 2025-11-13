@@ -1,8 +1,9 @@
 CFG = {
     # ……原来的 7 类……
     "function_def_types": ["function_definition"],
+    "class_def_types":    ["struct_specifier", "union_specifier", "enum_specifier"],
     "assignment_types":   ["assignment_expression", "init_declarator", "compound_literal_expression"],
-    "identifier_types":   ["identifier"],
+    "identifier_types":   ["identifier","type_identifier"],
     "if_types":           ["if_statement"],
     "loop_types":         ["for_statement", "while_statement", "do_statement"],
     "call_types":         ["call_expression"],
@@ -19,4 +20,6 @@ CFG = {
     "paren_expr_types":   ["parenthesized_expression"],
     "literal_int_types":  ["integer"],
     "type_spec_types":    ["primitive_type"],
+
+    "attr_access_types": ["field_expression", "pointer_expression"],
 }

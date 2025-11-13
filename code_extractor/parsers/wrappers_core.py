@@ -33,7 +33,7 @@ class TreeSitterLanguageWrapper:
             "param_list":  s("paramlist_types"),
             # 参数声明：parameter_declaration / formal_parameter
             "param_decl":  s("paramdecl_types"),
-            # 类定义：class_declaration（主要是 Java）
+            # 类定义：class_declaration
             "class_def":   s("class_def_types"),
 
             # —— 新增：表达式/类型类（可选，用于更细粒度依赖） —— #
@@ -45,4 +45,6 @@ class TreeSitterLanguageWrapper:
             "literal_int":  s("literal_int_types"),
             # 类型标注：primitive_type / integral_type 等
             "type_spec":    s("type_spec_types"),
+            
+            "attr_access": s("attr_access_types"),
         }

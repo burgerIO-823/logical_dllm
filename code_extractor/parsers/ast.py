@@ -24,6 +24,7 @@ class AstExtractor:
         if node_type in kinds_map.get("block", set()):      return "block"
         if node_type in kinds_map.get("param_list", set()): return "param_list"
         if node_type in kinds_map.get("param_decl", set()): return "param_decl"
+        if node_type in kinds_map.get("attr_access", set()): return "attr_access"
 
         # 可选表达式/类型类
         if node_type in kinds_map.get("compare_expr", set()): return "compare_expr"
