@@ -18,13 +18,27 @@ class AstExtractor:
         self.text_limit = text_limit
 
     def _tag_kind(self, node_type: str, kinds_map: Dict[str, set]) -> str:
-        if   node_type in kinds_map["function_def"]: return "function_def"
-        elif node_type in kinds_map["assignment"]:   return "assignment"
-        elif node_type in kinds_map["identifier"]:   return "identifier"
-        elif node_type in kinds_map["if_stmt"]:      return "if_stmt"
-        elif node_type in kinds_map["loop_stmt"]:    return "loop_stmt"
-        elif node_type in kinds_map["call_expr"]:    return "call_expr"
-        elif node_type in kinds_map["return_stmt"]:  return "return_stmt"
+        # 结构类优先
+        if node_type in kinds_map.get("root", set()):       return "root"
+        if node_type in kinds_map.get("class_def", set()):  return "class_def"
+        if node_type in kinds_map.get("block", set()):      return "block"
+        if node_type in kinds_map.get("param_list", set()): return "param_list"
+        if node_type in kinds_map.get("param_decl", set()): return "param_decl"
+
+        # 可选表达式/类型类
+        if node_type in kinds_map.get("compare_expr", set()): return "compare_expr"
+        if node_type in kinds_map.get("paren_expr", set()):   return "paren_expr"
+        if node_type in kinds_map.get("literal_int", set()):  return "literal_int"
+        if node_type in kinds_map.get("type_spec", set()):    return "type_spec"
+
+        # 原来的 7 类
+        if   node_type in kinds_map.get("function_def", set()): return "function_def"
+        elif node_type in kinds_map.get("assignment", set()):   return "assignment"
+        elif node_type in kinds_map.get("identifier", set()):   return "identifier"
+        elif node_type in kinds_map.get("if_stmt", set()):      return "if_stmt"
+        elif node_type in kinds_map.get("loop_stmt", set()):    return "loop_stmt"
+        elif node_type in kinds_map.get("call_expr", set()):    return "call_expr"
+        elif node_type in kinds_map.get("return_stmt", set()):  return "return_stmt"
         else:                                        return "other"
 
     def extract(self, parsed: "ParsedCode", wrapper: "TreeSitterLanguageWrapper"):
