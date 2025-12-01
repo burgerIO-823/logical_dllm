@@ -3,6 +3,10 @@ code_extractor/langs/*
 !code_extractor/langs/build.py
 !code_extractor/langs/clone.sh
 
+# Visualization outputs
+cfg_visualizations/
+code_extractor/test_scripts/shorteval/results/
+
 # OS / editor / Python 常见忽略
 .DS_Store
 __pycache__/

@@ -249,6 +249,9 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
     # 记录哪些节点已经被当作 def 处理过
     nodes_marked_as_def: Set[int] = set()
 
+    # 记录哪些节点已经被处理过（包括def和use），避免重复处理
+    nodes_already_processed: Set[int] = set()
+
     def dfs(nid: int):
         node = nodes[nid]
 
@@ -301,6 +304,7 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                 defs_set.add(s)
                 scope_stack[-1][sym] = cid
                 nodes_marked_as_def.add(cid)
+                nodes_already_processed.add(cid)
 
         # 4) param_decl: 参数 / 局部变量定义（C/Java/JS 等）
         if node.kind == "param_decl":
@@ -317,13 +321,22 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                 defs_set.add(s)
                 scope_stack[-1][sym] = cid
                 nodes_marked_as_def.add(cid)
+                nodes_already_processed.add(cid)
 
         # 5) assignment: 第一个 ident-like 是 LHS def，其余是 use
         if node.kind == "assignment":
-            ident_children: List[int] = [
-                cid for cid in children.get(nid, [])
-                if is_ident_like(nodes[cid])
-            ]
+            # 收集所有直接的ident-like子节点，但要跳过attr_access的子节点
+            ident_children: List[int] = []
+            for cid in children.get(nid, []):
+                child_node = nodes[cid]
+                if is_ident_like(child_node):
+                    # 如果是attr_access，只添加它本身，不添加其子节点
+                    ident_children.append(cid)
+                    # 标记attr_access的所有子节点为已处理，避免重复
+                    if child_node.kind == "attr_access":
+                        for sub_cid in children.get(cid, []):
+                            nodes_already_processed.add(sub_cid)
+
             ident_children.sort(key=lambda cid: nodes[cid].span[0])
 
             if ident_children:
@@ -336,6 +349,7 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                     defs_set.add(s)
                     scope_stack[-1][lhs_sym] = lhs_id
                     nodes_marked_as_def.add(lhs_id)
+                    nodes_already_processed.add(lhs_id)
 
                 # RHS identifiers as uses
                 for uid in ident_children[1:]:
@@ -345,20 +359,35 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                     su = symbol_to_str(use_sym)
                     uses_set = ensure_uses(g, uid)
                     uses_set.add(su)
+                    nodes_already_processed.add(uid)
                     def_id = lookup_def(scope_stack, use_sym)
                     if def_id is not None:
-                        g.edges.append((def_id, uid, su))
+                        # 检查是否已存在相同的边，避免重复
+                        edge = (def_id, uid, su)
+                        if edge not in g.edges:
+                            g.edges.append(edge)
 
         # 6) standalone ident-like nodes as uses
-        if is_ident_like(node) and nid not in nodes_marked_as_def:
+        # 只处理尚未被处理的节点，避免重复
+        if is_ident_like(node) and nid not in nodes_marked_as_def and nid not in nodes_already_processed:
             sym = build_symbol_key(nid, index)
             if sym is not None and sym.name:
                 su = symbol_to_str(sym)
                 uses_set = ensure_uses(g, nid)
                 uses_set.add(su)
+                nodes_already_processed.add(nid)
+
+                # 如果是attr_access，标记其所有子节点为已处理
+                if node.kind == "attr_access":
+                    for sub_cid in children.get(nid, []):
+                        nodes_already_processed.add(sub_cid)
+
                 def_id = lookup_def(scope_stack, sym)
                 if def_id is not None:
-                    g.edges.append((def_id, nid, su))
+                    # 检查是否已存在相同的边
+                    edge = (def_id, nid, su)
+                    if edge not in g.edges:
+                        g.edges.append(edge)
 
         # ---------- recurse into children ----------
         for cid in children.get(nid, []):

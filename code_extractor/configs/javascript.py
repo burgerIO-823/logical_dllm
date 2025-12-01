@@ -3,7 +3,7 @@ CFG = {
     "function_def_types": ["function_declaration", "method_definition", "generator_function", "arrow_function"],
     "class_def_types":    ["class_declaration"],
     "assignment_types":   ["assignment_expression", "variable_declarator"],
-    "identifier_types":   ["identifier"],
+    "identifier_types":   ["identifier", "property_identifier"],
     "if_types":           ["if_statement", "else_clause"],
     "loop_types":         ["for_statement", "while_statement", "do_statement", "for_in_statement", "for_of_statement"],
     "call_types":         ["call_expression", "new_expression", "await_expression"],

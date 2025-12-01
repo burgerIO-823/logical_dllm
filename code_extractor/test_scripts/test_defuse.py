@@ -5,6 +5,7 @@ from code_extractor.parsers.parser import TreeSitterCodeParser, ParsedCode
 from code_extractor.parsers.ast import AstExtractor
 from code_extractor.graphs.ast_index import build_ast_index
 from code_extractor.graphs.def_use import build_def_use
+from code_extractor.graphs.visualizer import visualize_def_use, GRAPHVIZ_AVAILABLE
 
 SAMPLES = {
     "python": """\
@@ -121,7 +122,7 @@ class T {
 """,
 }
 
-def run_once(lang_name: str, code: str):
+def run_once(lang_name: str, code: str, output_dir: str = "./defuse_visualizations"):
     print(f"\n=== [Def-Use {lang_name}] ===")
     reg = make_registry()
     wrapper = reg.get_wrapper(lang_name)
@@ -138,7 +139,7 @@ def run_once(lang_name: str, code: str):
     # 2) 构建 def-use 图
     dug = build_def_use(index)
 
-    # 简单打印
+    # 3) 打印文本结果
     print("Defs:")
     for nid, names in sorted(dug.defs.items()):
         n = index.nodes_by_id[nid]
@@ -158,17 +159,77 @@ def run_once(lang_name: str, code: str):
             f"  -> use(id={use_id}, kind={un.kind}, span={un.span})"
         )
 
+    # 4) 生成可视化图形
+    print(f"\n--- Generating visualization for {lang_name} ---")
+    if GRAPHVIZ_AVAILABLE:
+        output_path = f"{output_dir}/defuse_{lang_name}"
+        result = visualize_def_use(
+            dug=dug,
+            index=index,
+            output_path=output_path,
+            format="png",
+            view=False,
+            max_edges=None,  # 显示所有边
+            show_isolated_nodes=False,  # 不显示孤立节点
+        )
+        if result:
+            print(f"✓ Def-Use visualization saved: {result}")
+    else:
+        print("⚠ Graphviz not available. Install with: pip install graphviz")
+        print("  Skipping graphical visualization (text output shown above)")
+
 
 def main():
-    for lang in ["python", "javascript", "c", "java"]:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Test Def-Use graph construction and visualization")
+    parser.add_argument(
+        "--lang",
+        type=str,
+        choices=list(SAMPLES.keys()) + ["all"],
+        default="all",
+        help="Language to test (default: all)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./defuse_visualizations",
+        help="Output directory for visualizations",
+    )
+
+    args = parser.parse_args()
+
+    # 确定要处理的语言
+    if args.lang == "all":
+        languages = ["python", "javascript", "c", "java"]
+    else:
+        languages = [args.lang]
+
+    print("=" * 80)
+    print("Def-Use Graph Construction and Visualization Test")
+    print("=" * 80)
+    if not GRAPHVIZ_AVAILABLE:
+        print("⚠ Note: Graphviz not installed - only text output will be shown")
+        print("  Install with: pip install graphviz")
+        print("=" * 80)
+
+    for lang in languages:
         code = SAMPLES.get(lang)
         if not code:
             print(f"\n=== [{lang}] sample missing, skip ===")
             continue
         try:
-            run_once(lang, code)
+            run_once(lang, code, output_dir=args.output_dir)
         except Exception as e:
             print(f"  ✗ Error for {lang}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    print("\n" + "=" * 80)
+    print("All tests complete!")
+    if GRAPHVIZ_AVAILABLE:
+        print(f"Visualizations saved in: {args.output_dir}/")
+    print("=" * 80)
 
 
 if __name__ == "__main__":
