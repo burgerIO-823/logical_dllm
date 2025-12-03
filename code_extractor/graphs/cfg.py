@@ -27,7 +27,9 @@ class FunctionCFG:
     - nodes:      参与控制流的 AST node_id -> AstNodeRec
     - succ / pred: 控制流有向边
     - entry:      入口语句（通常是函数体里的第一条语句；如果函数体为空则为 None）
-    - exits:      可能的出口语句（当前简化版，只是“在函数体内没有后继的语句”）
+    - exits:      可能的出口语句（当前简化版，只是"在函数体内没有后继的语句"）
+    - internal_data_edges: 函数内部的数据依赖边（由LogicGraph构建时填充）
+    - enhanced_edges: 合并后的边（控制流+数据流），减少冗余
     """
     func_id: int
     entry: Optional[int]
@@ -35,6 +37,8 @@ class FunctionCFG:
     nodes: Dict[int, AstNodeRec] = field(default_factory=dict)
     succ: Dict[int, List[int]] = field(default_factory=lambda: defaultdict(list))
     pred: Dict[int, List[int]] = field(default_factory=lambda: defaultdict(list))
+    internal_data_edges: List = field(default_factory=list)  # List[DataDependencyEdge]
+    enhanced_edges: List = field(default_factory=list)  # List[EnhancedEdge]
 
 
 @dataclass

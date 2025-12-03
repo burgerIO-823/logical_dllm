@@ -1,4 +1,7 @@
+# Conda environment
 .conda/
+
+# Tree-sitter language libraries (keep build script only)
 code_extractor/langs/*
 !code_extractor/langs/build.py
 !code_extractor/langs/clone.sh
@@ -7,9 +10,50 @@ code_extractor/langs/*
 cfg_visualizations/
 code_extractor/test_scripts/shorteval/results/
 
-# OS / editor / Python 常见忽略
-.DS_Store
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
 *.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs and databases
 *.log
+*.sql
+*.sqlite
+*.db
+
+# Environment variables
+.env
+.env.local
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Mac
+.DS_Store

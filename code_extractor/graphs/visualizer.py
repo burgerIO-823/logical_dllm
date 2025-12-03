@@ -163,29 +163,31 @@ def _visualize_cfg_detailed(
                     dst_name = f"n_{dst}"
                     sub.edge(src_name, dst_name)
 
-    # 3) Add function call edges (cross-cluster edges)
-    if show_call_edges and cfg.call_edges:
-        for caller_id, callee_id, call_site_id in cfg.call_edges:
-            # Determine source node name
-            if caller_id == -1:
-                # Call from module level
-                src_name = f"n_{call_site_id}"
-            else:
-                # Call from within a function
-                src_name = f"n_{call_site_id}"
-
-            # Target is the function entry node
-            dst_name = f"fn_{callee_id}"
-
-            # Add call edge with distinct style
-            dot.edge(
-                src_name,
-                dst_name,
-                label="call",
-                color="red",
-                style="dashed",
-                constraint="false",  # Don't affect layout too much
-            )
+    # 3) Add function call edges (cross-cluster edges) - DISABLED
+    # In detailed CFG view, we focus on control flow within functions
+    # and don't show cross-function call edges to avoid clutter
+    # if show_call_edges and cfg.call_edges:
+    #     for caller_id, callee_id, call_site_id in cfg.call_edges:
+    #         # Determine source node name
+    #         if caller_id == -1:
+    #             # Call from module level
+    #             src_name = f"n_{call_site_id}"
+    #         else:
+    #             # Call from within a function
+    #             src_name = f"n_{call_site_id}"
+    #
+    #         # Target is the function entry node
+    #         dst_name = f"fn_{callee_id}"
+    #
+    #         # Add call edge with distinct style
+    #         dot.edge(
+    #             src_name,
+    #             dst_name,
+    #             label="call",
+    #             color="red",
+    #             style="dashed",
+    #             constraint="false",  # Don't affect layout too much
+    #         )
 
     # Save and optionally view
     if output_path is None:
@@ -250,44 +252,84 @@ def _visualize_logic_graph(
                 module.edge(f"stmt_{edge.source_id}", f"stmt_{edge.target_id}",
                            color="black", arrowsize="0.7")
 
-    # === BOTTOM: Function Definitions (Simplified) ===
-    with dot.subgraph(name="cluster_functions") as funcs:
-        funcs.attr(label="🔧 Function Definitions",
-                  style="filled", color="lightblue",
-                  fontsize="14", fontname="Arial Bold")
-        funcs.attr(rank="same")
+    # === BOTTOM: Function Definitions (Detailed with Internal Structure) ===
+    for func_id, fcfg in func_items:
+        func_node = index.nodes_by_id.get(func_id)
+        if func_node:
+            # Get function signature (first line)
+            lines = func_node.text.strip().split('\n')
+            sig = lines[0].strip() if lines else "unknown"
+            # Clean signature - remove type keywords
+            for kw in ['void ', 'int ', 'Point ', 'double ', 'float ',
+                      'static ', 'public ', 'private ', 'class ']:
+                sig = sig.replace(kw, '')
+            func_label = f"🔧 Function: {sig}"
+        else:
+            func_label = f"🔧 Function: func_{func_id}"
 
-        for func_id, fcfg in func_items:
-            func_node = index.nodes_by_id.get(func_id)
-            if func_node:
-                # Get function signature (first line)
-                lines = func_node.text.strip().split('\n')
-                sig = lines[0].strip() if lines else "unknown"
+        # Create a subgraph for each function showing internal structure
+        with dot.subgraph(name=f"cluster_func_{func_id}") as func_cluster:
+            func_cluster.attr(label=func_label,
+                            style="filled", color="lightblue",
+                            fontsize="12", fontname="Arial")
 
-                # Clean signature - remove type keywords
-                for kw in ['void ', 'int ', 'Point ', 'double ', 'float ',
-                          'static ', 'public ', 'private ', 'class ']:
-                    sig = sig.replace(kw, '')
+            # Add function entry/header node
+            func_cluster.node(f"fn_{func_id}", label=f"ENTRY\\n{sig}",
+                            fillcolor="lightgreen", shape="ellipse",
+                            fontname="Courier", fontsize="9")
 
-                # Find return statement
-                return_stmt = ""
-                for line in lines:
-                    if 'return' in line:
-                        return_stmt = line.strip()
-                        break
-
-                # Build label with signature and return
-                if return_stmt:
-                    label = f"{sig}\\n{return_stmt}"
+            # Add internal statement nodes
+            for stmt_id in fcfg.nodes:
+                stmt_node = index.nodes_by_id.get(stmt_id)
+                if stmt_node:
+                    stmt_text = _truncate_text(stmt_node.text.strip(), 35)
+                    # Color return statements differently
+                    if 'return' in stmt_node.text.lower():
+                        fill_color = "lightcoral"
+                    else:
+                        fill_color = "lightblue"
                 else:
-                    label = sig
-            else:
-                label = f"func_{func_id}"
+                    stmt_text = f"stmt_{stmt_id}"
+                    fill_color = "lightblue"
 
-            funcs.node(f"fn_{func_id}", label=label,
-                      fillcolor="lightblue", shape="box",
-                      fontname="Courier", fontsize="10",
-                      style="rounded,filled")
+                func_cluster.node(f"fn_{func_id}_stmt_{stmt_id}",
+                                label=stmt_text,
+                                fillcolor=fill_color,
+                                shape="box",
+                                fontname="Courier",
+                                fontsize="9")
+
+            # Add enhanced edges (merged control flow + data flow)
+            for edge in fcfg.enhanced_edges:
+                src_name = f"fn_{func_id}" if edge.source_id == func_id else f"fn_{func_id}_stmt_{edge.source_id}"
+                dst_name = f"fn_{func_id}_stmt_{edge.target_id}"
+
+                # Determine edge style based on what it represents
+                if edge.has_control_flow and edge.has_data_flow:
+                    # Both control and data: dark blue bold line with variable labels
+                    edge_label = ", ".join(list(edge.shared_symbols)[:2])
+                    if len(edge.shared_symbols) > 2:
+                        edge_label += "..."
+                    func_cluster.edge(src_name, dst_name,
+                                    label=edge_label,
+                                    color="darkblue", style="bold",
+                                    fontcolor="darkblue", fontsize="8",
+                                    arrowsize="0.8", penwidth="2.5")
+                elif edge.has_data_flow:
+                    # Data only (rare, cross-path dependency): green dashed line
+                    edge_label = ", ".join(list(edge.shared_symbols)[:2])
+                    if len(edge.shared_symbols) > 2:
+                        edge_label += "..."
+                    func_cluster.edge(src_name, dst_name,
+                                    label=edge_label,
+                                    color="green", style="dashed",
+                                    fontcolor="darkgreen", fontsize="8",
+                                    arrowsize="0.7", penwidth="2.0")
+                else:
+                    # Control only: grey thin line
+                    func_cluster.edge(src_name, dst_name,
+                                    color="grey", style="solid",
+                                    arrowsize="0.6", penwidth="1.0")
 
     # === Call Edges: From statements to function definitions ===
     for call_site in logic_graph.call_edges:

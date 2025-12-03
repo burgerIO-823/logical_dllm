@@ -20,6 +20,31 @@ from code_extractor.graphs.def_use import DefUseGraph
 from code_extractor.graphs.ast_index import AstIndex
 
 
+# =========================
+#   Utility functions
+# =========================
+
+def _get_all_descendants(node_id: int, index: AstIndex) -> Set[int]:
+    """
+    Get all descendant node IDs of a given node (BFS traversal).
+
+    Args:
+        node_id: Starting node ID
+        index: AST index for traversal
+
+    Returns:
+        Set of all descendant node IDs including the node itself
+    """
+    descendants = set()
+    queue = [node_id]
+    while queue:
+        current = queue.pop(0)
+        descendants.add(current)
+        if current in index.children:
+            queue.extend(index.children[current])
+    return descendants
+
+
 @dataclass
 class DataDependencyEdge:
     """
@@ -32,6 +57,28 @@ class DataDependencyEdge:
     """
     source_id: int
     target_id: int
+    shared_symbols: Set[str]
+
+
+@dataclass
+class EnhancedEdge:
+    """
+    Represents a merged edge that may contain both control flow and data flow.
+
+    This reduces redundancy by combining edges that represent both execution order
+    and data dependency into a single edge.
+
+    Attributes:
+        source_id: Source statement ID
+        target_id: Target statement ID
+        has_control_flow: Whether this edge represents control flow dependency
+        has_data_flow: Whether this edge represents data flow dependency
+        shared_symbols: Variables passed through this edge (if has_data_flow)
+    """
+    source_id: int
+    target_id: int
+    has_control_flow: bool
+    has_data_flow: bool
     shared_symbols: Set[str]
 
 
@@ -210,7 +257,30 @@ def build_logic_graph(
     if entry_point_id != -1 and entry_point_id in function_defs:
         function_defs = {fid: fcfg for fid, fcfg in function_defs.items() if fid != entry_point_id}
 
-    # 6. Create LogicGraph
+    # 6. Compute internal data dependencies for each function
+    for func_id, fcfg in function_defs.items():
+        # Exclude ENTRY node (func_id) from statement nodes
+        # ENTRY should only be handled by parameter edges, not as a regular statement
+        func_statement_nodes = set(fcfg.nodes.keys()) - {func_id}
+
+        # 6a. Build statement-to-statement data edges
+        func_data_edges = _build_data_dependency_edges(
+            fcfg.succ,
+            func_statement_nodes,
+            dug,
+            index,
+        )
+
+        # 6b. Add parameter edges (ENTRY -> statements using parameters)
+        param_edges = _add_parameter_edges(fcfg, dug, index)
+
+        # Combine both types of data edges
+        fcfg.internal_data_edges = func_data_edges + param_edges
+
+        # 7. Build enhanced edges (merge control flow + data flow)
+        fcfg.enhanced_edges = _build_enhanced_edges(fcfg)
+
+    # 7. Create LogicGraph
     logic_graph = LogicGraph(
         statement_nodes=statement_nodes,
         data_edges=data_edges,
@@ -221,6 +291,128 @@ def build_logic_graph(
     )
 
     return logic_graph
+
+
+def _add_parameter_edges(
+    fcfg: FunctionCFG,
+    dug: DefUseGraph,
+    index: AstIndex,
+) -> List[DataDependencyEdge]:
+    """
+    Add data flow edges from function entry to statements that use parameters.
+
+    Now that def-use properly detects all parameters (including type-annotated),
+    we can extract parameter edges using def-use information directly.
+
+    Args:
+        fcfg: FunctionCFG
+        dug: DefUseGraph containing parameter definitions
+        index: AstIndex for traversal
+
+    Returns:
+        List of DataDependencyEdge from ENTRY to parameter-using statements
+    """
+    func_id = fcfg.func_id
+    param_edges = []
+
+    # Find parameter definitions from def-use graph
+    # Parameters are defined under the function's param_list
+    param_symbols = set()
+    param_def_ids = set()
+
+    def is_param_context(node_id: int) -> bool:
+        """Check if node is in parameter context of THIS function."""
+        current = node_id
+        found_param_list = False
+        while current is not None:
+            node = index.nodes_by_id.get(current)
+            if node and node.kind in {'param_list', 'parameters', 'formal_parameters'}:
+                found_param_list = True
+            # Stop at function boundary - we've checked this function's parameters
+            if current == func_id:
+                return found_param_list
+            current = index.parent.get(current)
+        return False
+
+    # Find all parameter definitions for THIS function only
+    for def_id, symbols in dug.defs.items():
+        if is_param_context(def_id):
+            param_def_ids.add(def_id)
+            param_symbols.update(symbols)
+
+    if not param_symbols:
+        return []
+
+    # For each statement in the function, check if it uses any parameters
+    for stmt_id in fcfg.nodes:
+        # Skip the function definition node itself (ENTRY = func_id)
+        if stmt_id == func_id:
+            continue
+
+        stmt_descendants = _get_all_descendants(stmt_id, index)
+
+        # Find which parameters are used in this statement
+        used_params = set()
+        for use_id in stmt_descendants:
+            if use_id in dug.uses:
+                # Check if any used symbol is a parameter
+                used_symbols = dug.uses[use_id]
+                used_params.update(used_symbols & param_symbols)
+
+        # If this statement uses parameters, create edge from ENTRY
+        if used_params:
+            param_edges.append(DataDependencyEdge(
+                source_id=func_id,  # ENTRY node
+                target_id=stmt_id,
+                shared_symbols=used_params
+            ))
+
+    return param_edges
+
+
+def _build_enhanced_edges(fcfg: FunctionCFG) -> List[EnhancedEdge]:
+    """
+    Build enhanced edges by merging control flow and data flow edges.
+
+    This reduces redundancy: if both control and data flow exist between the same
+    pair of statements, they are represented as a single enhanced edge.
+
+    Args:
+        fcfg: FunctionCFG with succ and internal_data_edges populated
+
+    Returns:
+        List of EnhancedEdge objects
+    """
+    # Collect all control flow edges
+    control_edges = set()
+    for src, dsts in fcfg.succ.items():
+        for dst in dsts:
+            control_edges.add((src, dst))
+
+    # Collect all data flow edges with their symbols
+    data_edges = {}  # (src, dst) -> Set[symbols]
+    for edge in fcfg.internal_data_edges:
+        key = (edge.source_id, edge.target_id)
+        data_edges[key] = edge.shared_symbols
+
+    # Merge: find all unique edge pairs
+    all_edge_pairs = control_edges | set(data_edges.keys())
+
+    enhanced = []
+    for src, dst in sorted(all_edge_pairs):  # Sort for deterministic order
+        has_control = (src, dst) in control_edges
+        has_data = (src, dst) in data_edges
+        symbols = data_edges.get((src, dst), set())
+
+        enhanced.append(EnhancedEdge(
+            source_id=src,
+            target_id=dst,
+            has_control_flow=has_control,
+            has_data_flow=has_data,
+            shared_symbols=symbols
+        ))
+
+    return enhanced
 
 
 def _build_data_dependency_edges(
@@ -236,17 +428,6 @@ def _build_data_dependency_edges(
     """
     data_edges = []
 
-    def get_all_descendants(node_id: int, index: AstIndex) -> Set[int]:
-        """Get all descendant node IDs of a given node."""
-        descendants = set()
-        queue = [node_id]
-        while queue:
-            current = queue.pop(0)
-            descendants.add(current)
-            if current in index.children:
-                queue.extend(index.children[current])
-        return descendants
-
     # Process each control flow edge
     for src, dsts in control_flow_edges.items():
         if src not in statement_nodes:
@@ -257,8 +438,8 @@ def _build_data_dependency_edges(
                 continue
 
             # Get all descendants of src and dst
-            src_descendants = get_all_descendants(src, index)
-            dst_descendants = get_all_descendants(dst, index)
+            src_descendants = _get_all_descendants(src, index)
+            dst_descendants = _get_all_descendants(dst, index)
 
             # Find all symbols defined in src statement
             src_defs = set()
@@ -296,5 +477,6 @@ def _build_data_dependency_edges(
 __all__ = [
     'LogicGraph',
     'DataDependencyEdge',
+    'EnhancedEdge',
     'build_logic_graph',
 ]

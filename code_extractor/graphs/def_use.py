@@ -96,10 +96,28 @@ def lookup_def(scope_stack: List[Dict[SymbolKey, int]], sym: SymbolKey) -> Optio
     """
     Look up the closest definition of `sym` from innermost to outermost scope.
     Scope maps use SymbolKey, so fields / vars / types live in separate namespaces.
+
+    Fallback mechanism: If exact match fails, try finding symbols with same name
+    but different kind (e.g., class/func definitions used as var references).
     """
+    # First try exact match
     for scope in reversed(scope_stack):
         if sym in scope:
             return scope[sym]
+
+    # Fallback: if sym is var/type, try finding class/func with same name
+    # This handles cases like: class Point defined, Point() used as identifier
+    if sym.kind in ("var", "type"):
+        for scope in reversed(scope_stack):
+            # Try class
+            class_key = SymbolKey(kind="class", name=sym.name, qualifier=sym.qualifier)
+            if class_key in scope:
+                return scope[class_key]
+            # Try func
+            func_key = SymbolKey(kind="func", name=sym.name, qualifier=sym.qualifier)
+            if func_key in scope:
+                return scope[func_key]
+
     return None
 
 
@@ -215,7 +233,7 @@ def find_class_name_id(
 #   Main builder
 # =========================
 
-def build_def_use(index: AstIndex) -> DefUseGraph:
+def build_def_use(index: AstIndex, debug: bool = False) -> DefUseGraph:
     """
     Build a coarse def-use graph on top of normalized AST (AstNodeRec + AstIndex).
 
@@ -270,9 +288,13 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                     defs_set.add(s)
                     scope_stack[-1][sym] = fn_name_id
                     nodes_marked_as_def.add(fn_name_id)
+                    if debug:
+                        print(f"  [FUNCTION DEF] node_id={fn_name_id}, name={fn_name}, added to scope level {len(scope_stack)-1}")
 
             # push function-local scope
             scope_stack.append({})
+            if debug:
+                print(f"  [SCOPE] Pushed function-local scope, now at level {len(scope_stack)-1}")
 
         # 2) class_def
         if node.kind == "class_def":
@@ -287,10 +309,33 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                     defs_set.add(s)
                     scope_stack[-1][sym] = cls_id
                     nodes_marked_as_def.add(cls_id)
+                    if debug:
+                        print(f"  [CLASS DEF] node_id={cls_id}, name={cls_name}, added to scope level {len(scope_stack)-1}")
 
         # 3) param_list: 参数定义
         if node.kind == "param_list":
-            for cid in children.get(nid, []):
+            # 递归查找所有identifier节点（支持类型注解参数）
+            def find_param_identifiers(parent_id):
+                """递归查找参数标识符，跳过类型注解"""
+                result = []
+                for cid in children.get(parent_id, []):
+                    child_node = nodes.get(cid)
+                    if not child_node:
+                        continue
+
+                    # 如果是identifier，检查是否是参数名（不是类型名）
+                    if child_node.kind == "identifier":
+                        # 跳过常见的类型名
+                        if child_node.text not in {'int', 'str', 'bool', 'float', 'dict',
+                                                    'list', 'tuple', 'set', 'None', 'bytes'}:
+                            result.append(cid)
+                    # 递归查找子节点（但不深入type节点）
+                    elif child_node.kind not in {'type', 'type_identifier'}:
+                        result.extend(find_param_identifiers(cid))
+                return result
+
+            param_ids = find_param_identifiers(nid)
+            for cid in param_ids:
                 sym = build_symbol_key(cid, index)
                 if sym is None:
                     continue
@@ -305,6 +350,8 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                 scope_stack[-1][sym] = cid
                 nodes_marked_as_def.add(cid)
                 nodes_already_processed.add(cid)
+                if debug:
+                    print(f"  [PARAM DEF] node_id={cid}, symbol={s}, added to scope level {len(scope_stack)-1}")
 
         # 4) param_decl: 参数 / 局部变量定义（C/Java/JS 等）
         if node.kind == "param_decl":
@@ -347,9 +394,17 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                     s = symbol_to_str(lhs_sym)
                     defs_set = ensure_defs(g, lhs_id)
                     defs_set.add(s)
-                    scope_stack[-1][lhs_sym] = lhs_id
+                    # For fields (with qualifier like self.x), add to global scope
+                    # so they can be accessed from other methods
+                    if lhs_sym.kind == "field" and lhs_sym.qualifier:
+                        scope_stack[0][lhs_sym] = lhs_id
+                    else:
+                        scope_stack[-1][lhs_sym] = lhs_id
                     nodes_marked_as_def.add(lhs_id)
                     nodes_already_processed.add(lhs_id)
+                    if debug:
+                        scope_level = 0 if (lhs_sym.kind == "field" and lhs_sym.qualifier) else len(scope_stack)-1
+                        print(f"  [ASSIGNMENT DEF] node_id={lhs_id}, symbol={s}, added to scope level {scope_level}")
 
                 # RHS identifiers as uses
                 for uid in ident_children[1:]:
@@ -361,6 +416,9 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                     uses_set.add(su)
                     nodes_already_processed.add(uid)
                     def_id = lookup_def(scope_stack, use_sym)
+                    if debug:
+                        use_text = nodes[uid].text.strip()
+                        print(f"  [USE in assignment RHS] node_id={uid}, symbol={su}, text={use_text}, def_id={def_id}")
                     if def_id is not None:
                         # 检查是否已存在相同的边，避免重复
                         edge = (def_id, uid, su)
@@ -383,6 +441,9 @@ def build_def_use(index: AstIndex) -> DefUseGraph:
                         nodes_already_processed.add(sub_cid)
 
                 def_id = lookup_def(scope_stack, sym)
+                if debug:
+                    use_text = node.text.strip()
+                    print(f"  [USE standalone] node_id={nid}, symbol={su}, text={use_text}, def_id={def_id}")
                 if def_id is not None:
                     # 检查是否已存在相同的边
                     edge = (def_id, nid, su)

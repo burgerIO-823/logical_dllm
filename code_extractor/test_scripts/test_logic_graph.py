@@ -22,7 +22,7 @@ from code_extractor.graphs.ast_index import build_ast_index
 from code_extractor.graphs.cfg import build_cfg
 from code_extractor.graphs.def_use import build_def_use
 from code_extractor.graphs.logic_graph import build_logic_graph
-from code_extractor.graphs.visualizer import visualize_cfg
+from code_extractor.graphs.visualizer import visualize_cfg, visualize_def_use
 
 
 # Test code samples for each language
@@ -171,10 +171,26 @@ def test_language(lang_name: str, code: str, verbose: bool = False):
                 stmt_node = index.nodes_by_id.get(call.statement_id)
                 print(f"  • {stmt_node.text.strip()} -> {call.callee_name}")
 
-        # Generate visualization
-        viz_output = project_root / "cfg_visualizations" / f"cfg_{lang_name}_logic"
-        result = visualize_cfg(cfg, index, str(viz_output), view_mode="simple")
-        print(f"\n✓ Visualization saved to: {result}")
+        # Generate visualizations
+        viz_dir = project_root / "cfg_visualizations"
+        viz_dir.mkdir(exist_ok=True)
+
+        print(f"\nGenerating visualizations...")
+
+        # 1. Def-Use Graph
+        defuse_output = viz_dir / f"defuse_{lang_name}"
+        result1 = visualize_def_use(dug, index, str(defuse_output), format="png", view=False)
+        print(f"  ✓ Def-Use Graph: {result1}")
+
+        # 2. Control Flow Graph (detailed)
+        cfg_output = viz_dir / f"cfg_{lang_name}_detailed"
+        result2 = visualize_cfg(cfg, index, str(cfg_output), format="png", view=False, view_mode="detailed")
+        print(f"  ✓ CFG (detailed): {result2}")
+
+        # 3. Logic Graph (simple/enhanced)
+        logic_output = viz_dir / f"logic_{lang_name}"
+        result3 = visualize_cfg(cfg, index, str(logic_output), format="png", view=False, view_mode="simple")
+        print(f"  ✓ Logic Graph: {result3}")
 
         return True
 
